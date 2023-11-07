@@ -1,4 +1,4 @@
-package Abgabe1
+package Abgabe2
 
 import scala.concurrent.Future
 
