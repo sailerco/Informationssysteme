@@ -1,8 +1,7 @@
 package Abgabe2
 
-import redis.clients.jedis.{Jedis, Pipeline}
+import redis.clients.jedis.Pipeline
 
-import java.util.Map
 import scala.io.Source
 import scala.jdk.CollectionConverters.MapHasAsJava
 
@@ -12,6 +11,7 @@ object GenerateData {
 
 class GenerateData(pipeline: Pipeline) {
   private val matches = collection.immutable.Map.newBuilder[String, Match]
+
   private case class Match(index: Int, date: String, homeTeam: String, awayTeam: String)
 
   def generate(): Unit = {
@@ -20,7 +20,7 @@ class GenerateData(pipeline: Pipeline) {
     generateShootouts(pipeline)
   }
 
-  def generateResults(pipeline: Pipeline): Unit = {
+  private def generateResults(pipeline: Pipeline): Unit = {
     val results = Source.fromFile("D:/Informationssysteme/results.csv")
     val iterator = results.getLines().drop(1).zipWithIndex
     for ((row, index) <- iterator) {
@@ -31,15 +31,16 @@ class GenerateData(pipeline: Pipeline) {
       val index_mapping = s"${fields(0)}_${fields(1)}_${fields(2)}"
       matches += (index_mapping -> matchData)
 
-      pipeline.hset(resultsHashKey, "date", fields(0))
+      val table = Map(
+        "date" -> fields(0),
+        "home_team_id" -> s"team:${fields(1)}",
+        "away_team_id" -> s"team:${fields(2)}",
+        "home_score" -> fields(3),
+        "away_score" -> fields(4),
+      )
 
-      pipeline.sadd("team_set", s"team:${fields(1)}")
-      pipeline.sadd("team_set", s"team:${fields(2)}")
-
-      pipeline.hset(resultsHashKey, "home_team_id", s"team:${fields(1)}")
-      pipeline.hset(resultsHashKey, "away_team_id", s"team:${fields(2)}")
-      pipeline.hset(resultsHashKey, "home_score", fields(3))
-      pipeline.hset(resultsHashKey, "away_score", fields(4))
+      pipeline.hset(resultsHashKey, table.asJava)
+      pipeline.sadd("team_set", s"team:${fields(1)}", s"team:${fields(2)}")
       pipeline.sync()
     }
     println("Results - Done")
@@ -48,44 +49,38 @@ class GenerateData(pipeline: Pipeline) {
   private def generateGoals(pipeline: Pipeline): Unit = {
     val goals = Source.fromFile("D:/Informationssysteme/goalscorers.csv")
     val iterator = goals.getLines().drop(1).zipWithIndex
-
     for ((row, index) <- iterator) {
       val goalHashKey = s"goal:" + index
       val fields = row.split(",")
 
       val index_mapping = s"${fields(0)}_${fields(1)}_${fields(2)}"
       val match_id = matches.result().get(index_mapping).map(_.index)
-      pipeline.hset(goalHashKey, "results_id", match_id.get.toString)
 
-      pipeline.sadd("team_set", s"team:${fields(3)}")
-      pipeline.hset(goalHashKey, "team_id", s"team:${fields(3)}")
+      val table = Map(
+        "results_id" -> match_id.get.toString,
+        "team_id" -> s"team:${fields(3)}",
+        "scorer_id" -> s"scorer:${fields(4)}",
+        "minute" -> fields(5),
+        "own_goal" -> fields(6),
+        "penalty" -> fields(7),
+      )
+      pipeline.hset(goalHashKey, table.asJava)
+      pipeline.sadd("team_set", s"team:${fields(3)}", s"scorer:${fields(4)}")
 
-      pipeline.sadd("scorer_set", s"scorer:${fields(4)}")
-      pipeline.hset(goalHashKey, "scorer_id", s"scorer:${fields(4)}")
-
-      pipeline.hset(goalHashKey, "minute", fields(5))
-      pipeline.hset(goalHashKey, "own_goal", fields(6))
-      pipeline.hset(goalHashKey, "penalty", fields(7))
-
+      val resultsKey = s"results:${match_id.get}"
+      val homeGoalsInResults = pipeline.hget(resultsKey, "home_goals")
+      val awayGoalsInResults = pipeline.hget(resultsKey, "away_goals")
       pipeline.sync()
-      val homeGoalsInResults = pipeline.hget("results:" + match_id.get, "home_goals")
-      val awayGoalsInResults = pipeline.hget("results:" + match_id.get, "away_goals")
-      pipeline.sync()
+
       if (fields(3) == fields(1)) {
-        if (homeGoalsInResults.get() != null)
-          pipeline.hset("results:" + match_id.get, "home_goals", homeGoalsInResults.get() + ";" + index)
-        else
-          pipeline.hset("results:" + match_id.get, "home_goals", index.toString)
-
+        updateGoals(pipeline, resultsKey, homeGoalsInResults.get(), "home_goals", index)
       } else if (fields(3) == fields(2)) {
-        if (awayGoalsInResults.get() != null)
-          pipeline.hset("results:" + match_id.get, "away_goals", awayGoalsInResults.get() + ";" + index)
-        else
-          pipeline.hset("results:" + match_id.get, "away_goals", index.toString)
+        updateGoals(pipeline, resultsKey, awayGoalsInResults.get(), "away_goals", index)
       }
       pipeline.sync()
     }
     println("Goalscorers - Done")
+    goals.close()
   }
 
   private def generateShootouts(pipeline: Pipeline): Unit = {
@@ -108,5 +103,15 @@ class GenerateData(pipeline: Pipeline) {
       pipeline.sync()
     }
     println("Shootouts - Done")
+  }
+
+  private def updateGoals(pipeline: Pipeline, matchId: String, currentGoals: String, goalType: String, index: Int): Unit = {
+    val updatedGoals = Option(currentGoals).fold(index.toString)(goals =>
+      if(!goals.split(";").contains(index.toString))
+        s"$goals;$index"
+      else
+        goals
+    )
+    pipeline.hset(matchId, goalType, updatedGoals)
   }
 }

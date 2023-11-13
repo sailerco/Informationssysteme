@@ -17,15 +17,12 @@ class JedisQueries(jedis: Jedis, pipeline: Pipeline) extends SimpleQueries {
 
   override def isConsistent(): Future[Boolean] = Future {
     val pipeline = jedis.pipelined()
-    val keys = jedis.keys("results:*").toArray.map(_.asInstanceOf[String]).toSet
-    //TODO: FIX THIS
-    val consistent = keys.forall { key =>
-      val home_goals_saved = jedis.hget(key, "home_goals")
-      val away_goals_saved = jedis.hget(key, "away_goals")
-      if (home_goals_saved != null && away_goals_saved != null)
-        home_goals_saved.split(";").length.toString == jedis.hget(key, "home_score") && away_goals_saved.split(";").length.toString == jedis.hget(key, "away_score")
-      else
-        false
+    val goalIds = jedis.keys("goal:*").toArray.map(_.asInstanceOf[String]).toSet
+    val consistent = goalIds.forall { key =>
+      val resultKey = s"results:" + jedis.hget(key, "results_id")
+      val homeGoalsCount = getCount(jedis.hget(resultKey, "home_goals"))
+      val awayGoalsCount = getCount(jedis.hget(resultKey, "away_goals"))
+      homeGoalsCount == jedis.hget(resultKey, "home_score").toInt && awayGoalsCount == jedis.hget(resultKey, "away_score").toInt
     }
     pipeline.close()
     consistent
@@ -63,5 +60,14 @@ class JedisQueries(jedis: Jedis, pipeline: Pipeline) extends SimpleQueries {
 
     pipeline.close()
     count
+  }
+
+  private def getCount(text: String): Int = {
+    if (text != null && text.contains(";")) {
+      text.split(";").length
+    } else if (text != null && !text.contains(";"))
+      1
+    else
+      0
   }
 }
