@@ -1,15 +1,18 @@
 package Abgabe2
 
-import redis.clients.jedis.{Jedis, JedisPooled, Pipeline}
+import Abgabe2.Main.{host, port}
+import redis.clients.jedis.{JedisPooled, Pipeline}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
 object JedisQueries {
-  def apply(jedis: JedisPooled, pipeline: Pipeline): JedisQueries = new JedisQueries(jedis, pipeline)
+  def apply(host: String, port: Int): JedisQueries = new JedisQueries(host, port)
 }
 
-class JedisQueries(jedis: JedisPooled, pipeline: Pipeline) extends SimpleQueries {
+class JedisQueries(host: String, port: Int) extends SimpleQueries {
+  val jedis = new JedisPooled(host, port)
+  val pipeline: Pipeline = jedis.pipelined()
   override def close(): Future[Unit] = Future {
     pipeline.close()
     jedis.close()
@@ -17,56 +20,38 @@ class JedisQueries(jedis: JedisPooled, pipeline: Pipeline) extends SimpleQueries
 
   override def isConsistent(): Future[Boolean] = Future {
     val pipeline = jedis.pipelined()
-    val goalIds = jedis.keys("goal:*").toArray.map(_.asInstanceOf[String]).toSet
+    val goalIds = jedis.smembers("goal_ids").toArray.map(_.asInstanceOf[String]).toSet
     val consistent = goalIds.forall { key =>
-      val resultKey = s"results:" + jedis.hget(key, "results_id")
-      val homeGoalsCount = getCount(jedis.hget(resultKey, "home_goals"))
-      val awayGoalsCount = getCount(jedis.hget(resultKey, "away_goals"))
-      homeGoalsCount == jedis.hget(resultKey, "home_score").toInt && awayGoalsCount == jedis.hget(resultKey, "away_score").toInt
+      val id = jedis.hget(key, "results_id")
+      val resultKey = s"results:$id"
+
+      val home_goals = pipeline.zrangeByScore("home_goals", id, id)
+      val away_goals = pipeline.zrangeByScore("away_goals", id, id)
+      val home_score = pipeline.hget(resultKey, "home_score")
+      val away_score = pipeline.hget(resultKey, "away_score")
+      pipeline.sync()
+
+      home_goals.get().toArray.length == home_score.get().toInt && away_goals.get().toArray.length == away_score.get().toInt
     }
     pipeline.close()
     consistent
   }
 
   override def countGoals(name: String): Future[Int] = Future {
-    val pipeline = jedis.pipelined()
-    val keys = jedis.keys("goal:*").toArray.map(_.asInstanceOf[String]).toSet
-    val count = keys.foldLeft(0) { (n, key) =>
-      val scorer_name = pipeline.hget(key, "scorer_id")
-      pipeline.sync()
-      if (("scorer:" + name).equals(scorer_name.get()))
-        n + 1
-      else
-        n
+    val keys = jedis.smembers("goal_ids").toArray.map(_.asInstanceOf[String]).toSet
+    keys.count { key =>
+      val scorer_name = jedis.hget(key, "scorer")
+      name.equals(scorer_name)
     }
-    pipeline.close()
-    count
   }
 
   override def countRangeGoals(min: Int, max: Int): Future[Int] = Future {
-    val pipeline = jedis.pipelined()
-    val keys = jedis.keys("results:*").toArray.map(_.asInstanceOf[String]).toSet
-
-    val count = keys.foldLeft(0) { (n, key) =>
-      val home_score = pipeline.hget(key, "home_score")
-      val away_score = pipeline.hget(key, "away_score")
-      pipeline.sync()
-      val combined_score = home_score.get().toInt + away_score.get().toInt
-      if (min <= combined_score && combined_score <= max)
-        n + 1
-      else
-        n
+    val keys = jedis.smembers("result_ids").toArray.map(_.asInstanceOf[String]).toSet
+    keys.count { key =>
+      val home_score = jedis.hget(key, "home_score").toInt
+      val away_score = jedis.hget(key, "away_score").toInt
+      val combined = home_score + away_score
+      min <= combined && combined <= max
     }
-    pipeline.close()
-    count
-  }
-
-  private def getCount(text: String): Int = {
-    if (text != null && text.contains(";")) {
-      text.split(";").length
-    } else if (text != null && !text.contains(";"))
-      1
-    else
-      0
   }
 }
