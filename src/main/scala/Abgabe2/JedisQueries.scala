@@ -1,15 +1,15 @@
 package Abgabe2
 
-import redis.clients.jedis.{Jedis, Pipeline}
+import redis.clients.jedis.{Jedis, JedisPooled, Pipeline}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 
 object JedisQueries {
-  def apply(jedis: Jedis, pipeline: Pipeline): JedisQueries = new JedisQueries(jedis, pipeline)
+  def apply(jedis: JedisPooled, pipeline: Pipeline): JedisQueries = new JedisQueries(jedis, pipeline)
 }
 
-class JedisQueries(jedis: Jedis, pipeline: Pipeline) extends SimpleQueries {
+class JedisQueries(jedis: JedisPooled, pipeline: Pipeline) extends SimpleQueries {
   override def close(): Future[Unit] = Future {
     pipeline.close()
     jedis.close()
@@ -57,7 +57,6 @@ class JedisQueries(jedis: Jedis, pipeline: Pipeline) extends SimpleQueries {
       else
         n
     }
-
     pipeline.close()
     count
   }

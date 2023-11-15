@@ -1,6 +1,6 @@
 package Abgabe2
 
-import redis.clients.jedis.Jedis
+import redis.clients.jedis.{Jedis, JedisPooled}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -14,15 +14,16 @@ object Main {
   def main(args: Array[String]): Unit = {
     val host = "localhost"
     val port = 6379
+//    val jedis = new JedisPooled(host, port)
     val jedis = new Jedis(host, port)
     val pipeline = jedis.pipelined()
 
     //new GenerateData(pipeline).generateResults(pipeline)
-    //new GenerateData(pipeline).generate()
-    val queries = new JedisQueries(jedis, pipeline)
+    new GenerateData(jedis, pipeline).generate()
+    /*val queries = new JedisQueries(jedis, pipeline)
     execute(queries, "Gerd Müller", 15, 20)
     StdIn.readLine()
-    queries.close()
+    queries.close()*/
   }
 
   private def execute(queries: SimpleQueries, name: String, min: Int, max: Int): Unit = {
@@ -30,14 +31,12 @@ object Main {
       case Failure(exception) => exception.printStackTrace()
       case Success(value) => println(s"$name scored $value goals")
     }
-    StdIn.readLine()
 
     queries.isConsistent().onComplete {
       case Failure(exception) => exception.printStackTrace()
       case Success(true) => println("no inconsistent records in table 'goalscorers' found...")
       case Success(false) => println("inconsistent records in table 'goalscorers' found.")
     }
-    StdIn.readLine()
 
     queries.countRangeGoals(min, max).onComplete {
       case Failure(exception) => exception.printStackTrace()
