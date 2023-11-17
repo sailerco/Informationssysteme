@@ -12,10 +12,15 @@ object Main {
   val host = "localhost"
   val port = 6379
   def main(args: Array[String]): Unit = {
-    GenerateData.apply(host, port).generate()
+    //GenerateData.apply(host, port).generate()
 
     val queries = JedisQueries.apply(host, port)
-    execute(queries, "Gerd Müller", 15, 20)
+    queries.isConsistent1().onComplete {
+      case Failure(exception) => exception.printStackTrace()
+      case Success(true) => println("no inconsistent records in table 'goalscorers' found...")
+      case Success(false) => println("inconsistent records in table 'goalscorers' found.")
+    }
+    //execute(queries, "Gerd Müller", 15, 20)
     StdIn.readLine()
     queries.close();
   }

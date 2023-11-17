@@ -1,10 +1,11 @@
 package Abgabe2
 
-import Abgabe2.Main.{host, port}
+import redis.clients.jedis.params.ScanParams
 import redis.clients.jedis.{JedisPooled, Pipeline}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
+import scala.jdk.CollectionConverters.ListHasAsScala
 
 object JedisQueries {
   def apply(host: String, port: Int): JedisQueries = new JedisQueries(host, port)
@@ -13,6 +14,7 @@ object JedisQueries {
 class JedisQueries(host: String, port: Int) extends SimpleQueries {
   val jedis = new JedisPooled(host, port)
   val pipeline: Pipeline = jedis.pipelined()
+
   override def close(): Future[Unit] = Future {
     pipeline.close()
     jedis.close()
@@ -27,31 +29,22 @@ class JedisQueries(host: String, port: Int) extends SimpleQueries {
 
       val home_goals = pipeline.zrangeByScore("home_goals", id, id)
       val away_goals = pipeline.zrangeByScore("away_goals", id, id)
-      val home_score = pipeline.hget(resultKey, "home_score")
-      val away_score = pipeline.hget(resultKey, "away_score")
+      val result = pipeline.hgetAll(resultKey)
       pipeline.sync()
-
-      home_goals.get().toArray.length == home_score.get().toInt && away_goals.get().toArray.length == away_score.get().toInt
+      home_goals.get().toArray.length == result.get().get("home_score").toInt && away_goals.get().toArray.length == result.get().get("away_score").toInt
     }
     pipeline.close()
     consistent
   }
 
   override def countGoals(name: String): Future[Int] = Future {
-    val keys = jedis.smembers("goal_ids").toArray.map(_.asInstanceOf[String]).toSet
-    keys.count { key =>
-      val scorer_name = jedis.hget(key, "scorer")
-      name.equals(scorer_name)
-    }
+    jedis.zscore("Scorer", name).toInt
   }
 
   override def countRangeGoals(min: Int, max: Int): Future[Int] = Future {
-    val keys = jedis.smembers("result_ids").toArray.map(_.asInstanceOf[String]).toSet
-    keys.count { key =>
-      val home_score = jedis.hget(key, "home_score").toInt
-      val away_score = jedis.hget(key, "away_score").toInt
-      val combined = home_score + away_score
-      min <= combined && combined <= max
-    }
+    val keys = jedis.zrangeWithScores("TotalGoals", 0, -1).asScala.toList
+    keys
+      .filter(k => (min to max).contains(k.getElement.toInt))
+      .map(_.getScore).sum.toInt
   }
 }

@@ -1,10 +1,9 @@
 package Abgabe2
 
-import redis.clients.jedis.params.ZAddParams
 import redis.clients.jedis.{Jedis, Pipeline}
 
 import scala.io.Source
-import scala.jdk.CollectionConverters.MapHasAsJava
+import scala.jdk.CollectionConverters.{IteratorHasAsScala, MapHasAsJava}
 
 object GenerateData {
   def apply(host: String, port: Int): GenerateData = new GenerateData(host, port)
@@ -19,6 +18,7 @@ class GenerateData(host: String, port: Int) {
 
 
   def generate(): Unit = {
+    jedis.flushAll()
     generateResults(pipeline)
     generateGoals(pipeline)
     generateShootouts(pipeline)
@@ -45,6 +45,9 @@ class GenerateData(host: String, port: Int) {
       pipeline.sadd(s"home:${fields(1)}", index.toString)
       pipeline.sadd(s"away:${fields(2)}", index.toString)
 
+      val total = fields(3).toInt + fields(4).toInt
+      pipeline.zincrby("TotalGoals", 1, total.toString)
+
       pipeline.sync()
     }
     println("Results - Done")
@@ -57,7 +60,7 @@ class GenerateData(host: String, port: Int) {
       val goalHashKey = s"goal:" + index
       val fields = row.split(",")
 
-      val match_id = jedis.sinter(s"date:${fields(0)}", s"home:${fields(1)}", s"away:${fields(2)}").iterator().next()
+      val match_id = getMatchID("date:" + {fields(0)}, "home:" + {fields(1)}, "away:" + fields(2)).next()
 
       val table = Map(
         "results_id" -> match_id,
@@ -74,6 +77,8 @@ class GenerateData(host: String, port: Int) {
       if (fields(3) == fields(1)) pipeline.zadd("home_goals", match_id.toDouble, goalHashKey)
       if (fields(3) == fields(2)) pipeline.zadd("away_goals", match_id.toDouble, goalHashKey)
 
+      pipeline.zincrby("Scorer", 1, fields(4))
+
       pipeline.sync()
     }
     println("Goalscorers - Done")
@@ -86,7 +91,7 @@ class GenerateData(host: String, port: Int) {
       val shootHashKey = s"shootout:" + index
       val fields = row.split(",")
 
-      val match_id = jedis.sinter(s"date:${fields(0)}", s"home:${fields(1)}", s"away:${fields(2)}").iterator()
+      val match_id = getMatchID("date:" + {fields(0)}, "home:" + {fields(1)}, "away:" + fields(2))
 
       if (match_id.hasNext) {
         pipeline.hset(shootHashKey, "results_id", match_id.next())
@@ -96,5 +101,9 @@ class GenerateData(host: String, port: Int) {
     }
     println("Shootouts - Done")
     shootouts.close()
+  }
+
+  private def getMatchID(date: String, home: String, away: String): Iterator[String] = {
+    jedis.sinter(date, home, away).iterator().asScala
   }
 }
