@@ -45,6 +45,7 @@ class GenerateData(host: String, port: Int) {
       pipeline.sadd(s"home:${fields(1)}", index.toString)
       pipeline.sadd(s"away:${fields(2)}", index.toString)
 
+      //TODO: am I allowed to do this?
       val total = fields(3).toInt + fields(4).toInt
       pipeline.zincrby("TotalGoals", 1, total.toString)
 
@@ -77,6 +78,8 @@ class GenerateData(host: String, port: Int) {
       if (fields(3) == fields(1)) pipeline.zadd("home_goals", match_id.toDouble, goalHashKey)
       if (fields(3) == fields(2)) pipeline.zadd("away_goals", match_id.toDouble, goalHashKey)
 
+
+      //TODO: am I allowed to do this?
       pipeline.zincrby("Scorer", 1, fields(4))
 
       pipeline.sync()
