@@ -1,7 +1,7 @@
 package Abgabe2
 
 import redis.clients.jedis.params.ScanParams
-import redis.clients.jedis.{JedisPooled, Pipeline}
+import redis.clients.jedis.JedisPooled
 
 import scala.annotation.tailrec
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -14,7 +14,7 @@ object JedisQueries {
 
 class JedisQueries(host: String, port: Int) extends SimpleQueries {
   val jedis = new JedisPooled(host, port)
-  val goals = scan(List(), ScanParams.SCAN_POINTER_START, "goal:*")
+  val goals: List[String] = scan(List(), ScanParams.SCAN_POINTER_START, "goal:*")
 
   override def close(): Future[Unit] = Future {
     jedis.close()
@@ -22,33 +22,21 @@ class JedisQueries(host: String, port: Int) extends SimpleQueries {
 
   override def isConsistent(): Future[Boolean] = Future {
     val pipeline = jedis.pipelined()
+
     val resultsKey = goals.map(r => pipeline.hget(r, "results_id")).toSet
     pipeline.sync()
     val results = resultsKey.map(_.get())
     val matches = results.map { s => (s, pipeline.hgetAll(s"results:$s")) }
     pipeline.sync()
+
     val scores = matches.map { s => (s._1, s._2.get().get("home_score"), s._2.get().get("away_score")) }
     scores.forall { t =>
       val id = t._1
-      //Returns Goals as an Array that happened at the specific match (presented through the index)
       val home_goals = pipeline.zrangeByScore("home_goals", id, id)
       val away_goals = pipeline.zrangeByScore("away_goals", id, id)
       pipeline.sync()
       home_goals.get().toArray.length == t._2.toInt && away_goals.get().toArray.length == t._3.toInt
     }
-    /*    val consistent = goals.forall { key =>
-          val id = jedis.hget(key, "results_id")
-          val resultKey = s"results:$id"
-
-          val home_goals = pipeline.zrangeByScore("home_goals", id, id)
-          val away_goals = pipeline.zrangeByScore("away_goals", id, id)
-
-          val result = pipeline.hgetAll(resultKey)
-          pipeline.sync()
-
-          home_goals.get().toArray.length == result.get().get("home_score").toInt && away_goals.get().toArray.length == result.get().get("away_score").toInt
-        }*/
-
   }
 
   override def countGoals(name: String): Future[Int] = Future {
