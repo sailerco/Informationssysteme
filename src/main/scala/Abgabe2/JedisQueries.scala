@@ -23,19 +23,27 @@ class JedisQueries(host: String, port: Int) extends SimpleQueries {
   override def isConsistent(): Future[Boolean] = Future {
     val pipeline = jedis.pipelined()
 
+    //put all results_id that appear in the goals into an set -> removes duplicates
     val resultsKey = goals.map(r => pipeline.hget(r, "results_id")).toSet
     pipeline.sync()
+
+    //retrieve results by the id in the resultsKey (meaning only results that also have goals)
     val results = resultsKey.map(_.get())
-    val matches = results.map { s => (s, pipeline.hgetAll(s"results:$s")) }
+
+    //val scores = results.map(id => (id, pipeline.hget(s"results:$id", "home_score"), pipeline.hget(s"results:$id", "away_score")))
+    val matches = results.map { r => (r, pipeline.hgetAll(s"results:$r")) }
     pipeline.sync()
 
-    val scores = matches.map { s => (s._1, s._2.get().get("home_score"), s._2.get().get("away_score")) }
-    scores.forall { t =>
-      val id = t._1
-      val home_goals = pipeline.zrangeByScore("home_goals", id, id)
-      val away_goals = pipeline.zrangeByScore("away_goals", id, id)
-      pipeline.sync()
-      home_goals.get().toArray.length == t._2.toInt && away_goals.get().toArray.length == t._3.toInt
+    //reduce map to the id, home_score and away_score
+    val scores = matches.map { case (id, hash) => (id, hash.get().get("home_score"), hash.get().get("away_score")) }
+    //retrieve all the goals that happened at the given match
+    val grouped = scores.map { case (id, home, away) => (home, pipeline.zrangeByScore("home_goals", id, id), away, pipeline.zrangeByScore("away_goals", id, id)) }
+    pipeline.sync()
+
+    //check if an inconsistency exists
+    !grouped.exists {
+      case (home_score, home_goal, away_score, away_goal) =>
+        home_score.toInt != home_goal.get().toArray.length && away_score.toInt != away_goal.get().toArray.length
     }
   }
 

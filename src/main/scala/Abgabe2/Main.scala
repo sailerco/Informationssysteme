@@ -1,9 +1,7 @@
 package Abgabe2
 
-import redis.clients.jedis.{Jedis, JedisPooled}
 
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
 import scala.io.StdIn
 import scala.util.{Failure, Success}
 
@@ -12,7 +10,7 @@ object Main {
   val host = "localhost"
   val port = 6379
   def main(args: Array[String]): Unit = {
-    //GenerateData.apply(host, port).generate()
+    GenerateData.apply(host, port).generate()
 
     val queries = JedisQueries.apply(host, port)
     execute(queries, "Gerd Müller", 15, 20)

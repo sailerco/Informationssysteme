@@ -11,22 +11,21 @@ object GenerateData {
 
 class GenerateData(host: String, port: Int) {
   val jedis = new Jedis(host, port)
-  val pipeline: Pipeline = jedis.pipelined()
   private val results = Source.fromFile("./results.csv")
   private val goals = Source.fromFile("./goalscorers.csv")
   private val shootouts = Source.fromFile("./shootouts.csv")
 
 
   def generate(): Unit = {
-    jedis.flushAll()
-    generateResults(pipeline)
-    generateGoals(pipeline)
-    generateShootouts(pipeline)
+    generateResults()
+    generateGoals()
+    generateShootouts()
   }
 
-  private def generateResults(pipeline: Pipeline): Unit = {
+  private def generateResults(): Unit = {
     val iterator = results.getLines().drop(1).zipWithIndex
     for ((row, index) <- iterator) {
+      val pipeline: Pipeline = jedis.pipelined()
       val resultsHashKey = s"results:" + index
       val fields = row.split(",")
 
@@ -45,23 +44,20 @@ class GenerateData(host: String, port: Int) {
       pipeline.sadd(s"home:${fields(1)}", index.toString)
       pipeline.sadd(s"away:${fields(2)}", index.toString)
 
-      //TODO: am I allowed to do this?
-      val total = fields(3).toInt + fields(4).toInt
-      pipeline.zincrby("TotalGoals", 1, total.toString)
-
       pipeline.sync()
     }
     println("Results - Done")
     results.close()
   }
 
-  private def generateGoals(pipeline: Pipeline): Unit = {
+  private def generateGoals(): Unit = {
     val iterator = goals.getLines().drop(1).zipWithIndex
     for ((row, index) <- iterator) {
+      val pipeline: Pipeline = jedis.pipelined()
       val goalHashKey = s"goal:" + index
       val fields = row.split(",")
 
-      val match_id = getMatchID("date:" + {fields(0)}, "home:" + {fields(1)}, "away:" + fields(2)).next()
+      val match_id = getMatchID(s"date:${fields(0)}", s"home:${fields(1)}", s"away:${fields(2)}").next()
 
       val table = Map(
         "results_id" -> match_id,
@@ -78,23 +74,21 @@ class GenerateData(host: String, port: Int) {
       if (fields(3) == fields(1)) pipeline.zadd("home_goals", match_id.toDouble, goalHashKey)
       if (fields(3) == fields(2)) pipeline.zadd("away_goals", match_id.toDouble, goalHashKey)
 
-
-      //TODO: am I allowed to do this?
-      pipeline.zincrby("Scorer", 1, fields(4))
-
       pipeline.sync()
     }
     println("Goalscorers - Done")
     goals.close()
   }
 
-  private def generateShootouts(pipeline: Pipeline): Unit = {
+  private def generateShootouts(): Unit = {
     val iterator = shootouts.getLines().drop(1).zipWithIndex
     for ((row, index) <- iterator) {
+      val pipeline: Pipeline = jedis.pipelined()
+
       val shootHashKey = s"shootout:" + index
       val fields = row.split(",")
 
-      val match_id = getMatchID("date:" + {fields(0)}, "home:" + {fields(1)}, "away:" + fields(2))
+      val match_id = getMatchID(s"date:${fields(0)}", s"home:${fields(1)}", s"away:${fields(2)}")
 
       if (match_id.hasNext) {
         pipeline.hset(shootHashKey, "results_id", match_id.next())
