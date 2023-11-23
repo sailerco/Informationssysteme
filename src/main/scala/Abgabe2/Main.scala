@@ -13,7 +13,7 @@ object Main {
     GenerateData.apply(host, port).generate()
 
     val queries = JedisQueries.apply(host, port)
-    execute(queries, "Gerd Müller", 15, 20)
+    //execute(queries, "Gerd Müller", 15, 20)
     StdIn.readLine()
 //    queries.close();
   }
