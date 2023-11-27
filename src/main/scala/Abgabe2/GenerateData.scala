@@ -25,7 +25,7 @@ class GenerateData(host: String, port: Int) {
     val iterator = results.getLines().drop(1).zipWithIndex
     for ((row, index) <- iterator) {
       val pipeline: Pipeline = jedis.pipelined()
-      val key = s"results:" + index
+      val key = "results:" + index
       val Array(date, homeTeam, awayTeam, homeScore, awayScore, tournament, city, country, neutral) = row.split(",")
 
       val matchData = Map(

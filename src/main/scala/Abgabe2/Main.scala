@@ -1,6 +1,8 @@
 package Abgabe2
 
 
+import redis.clients.jedis.Pipeline
+
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.io.StdIn
 import scala.util.{Failure, Success}
@@ -10,9 +12,9 @@ object Main {
   val host = "localhost"
   val port = 6379
   def main(args: Array[String]): Unit = {
-    GenerateData.apply(host, port).generate()
+    //GenerateData(host, port).generate()
 
-    val queries = JedisQueries.apply(host, port)
+    val queries = JedisQueries(host, port)
     execute(queries, "Gerd Müller", 15, 20)
     StdIn.readLine()
     queries.close()
