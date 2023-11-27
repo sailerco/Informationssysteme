@@ -13,9 +13,9 @@ object Main {
     GenerateData.apply(host, port).generate()
 
     val queries = JedisQueries.apply(host, port)
-    //execute(queries, "Gerd Müller", 15, 20)
+    execute(queries, "Gerd Müller", 15, 20)
     StdIn.readLine()
-//    queries.close();
+    queries.close()
   }
 
   private def execute(queries: SimpleQueries, name: String, min: Int, max: Int): Unit = {
@@ -35,6 +35,5 @@ object Main {
       case Success(false) => println("inconsistent records in table 'goalscorers' found.")
     }
   }
-
 }
 

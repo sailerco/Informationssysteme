@@ -15,7 +15,6 @@ class GenerateData(host: String, port: Int) {
   private val goals = Source.fromFile("./goalscorers.csv")
   private val shootouts = Source.fromFile("./shootouts.csv")
 
-
   def generate(): Unit = {
     generateResults()
     generateGoals()
@@ -26,27 +25,26 @@ class GenerateData(host: String, port: Int) {
     val iterator = results.getLines().drop(1).zipWithIndex
     for ((row, index) <- iterator) {
       val pipeline: Pipeline = jedis.pipelined()
-      val resultsHashKey = s"results:" + index
-      val Array(date, home_team, away_team, home_score, away_score, tournament, city, country, neutral) = row.split(",")
+      val key = s"results:" + index
+      val Array(date, homeTeam, awayTeam, homeScore, awayScore, tournament, city, country, neutral) = row.split(",")
 
-      val table = Map(
+      val matchData = Map(
         "date" -> date,
-        "home_team" -> home_team,
-        "away_team" -> away_team,
-        "home_score" -> home_score,
-        "away_score" -> away_score,
-        "tournament" -> tournament,
+        "home_team" -> homeTeam,
+        "away_team" -> awayTeam,
+        "home_score" -> homeScore,
+        "away_score" -> awayScore,
         "city" -> city,
         "country" -> country,
+        "tournament" -> tournament,
         "neutral" -> neutral
-      )
+      ).asJava
 
-      pipeline.hset(resultsHashKey, table.asJava)
-      pipeline.zadd("matches", index, s"$date:$home_team:$away_team")
-
+      pipeline.hset(key, matchData)
+      pipeline.zadd("matches", index, s"$date:$homeTeam:$awayTeam")
       pipeline.sync()
     }
-    println("Results - Done")
+    println("Loading results is done")
     results.close()
   }
 
@@ -54,49 +52,46 @@ class GenerateData(host: String, port: Int) {
     val iterator = goals.getLines().drop(1).zipWithIndex
     for ((row, index) <- iterator) {
       val pipeline: Pipeline = jedis.pipelined()
-      val goalHashKey = s"goal:" + index
+      val key = s"goal:" + index
+      val Array(date, homeTeam, awayTeam, team, scorer, minute, ownGoal, penalty) = row.split(",")
 
-      val Array(date, home_team, away_team, team, scorer, minute, own_goal, penalty) = row.split(",")
+      val matchID = jedis.zscore("matches", s"$date:$homeTeam:$awayTeam").toInt
 
-      val match_id = jedis.zscore("matches", s"$date:$home_team:$away_team")
-
-      val table = Map(
-        "results_id" -> match_id.toInt.toString,
+      val goalData = Map(
+        "results_id" -> matchID.toString,
         "team" -> team,
         "scorer" -> scorer,
         "minute" -> minute,
-        "own_goal" -> own_goal,
-        "penalty" -> penalty,
-      )
+        "own_goal" -> ownGoal,
+        "penalty" -> penalty
+      ).asJava
 
-      pipeline.hset(goalHashKey, table.asJava)
-
-      if (team == home_team) pipeline.zadd("home_goals", match_id, goalHashKey)
-      if (team == away_team) pipeline.zadd("away_goals", match_id, goalHashKey)
+      pipeline.hset(key, goalData)
+      if (team == homeTeam) pipeline.zadd("home_goals", matchID, key)
+      if (team == awayTeam) pipeline.zadd("away_goals", matchID, key)
 
       pipeline.sync()
     }
-    println("Goalscorers - Done")
+    println("Loading goalscorers is done")
     goals.close()
   }
 
   private def generateShootouts(): Unit = {
     val iterator = shootouts.getLines().drop(1).zipWithIndex
     for ((row, index) <- iterator) {
-      val pipeline: Pipeline = jedis.pipelined()
+      val key = s"shootout:" + index
+      val Array(date, homeTeam, awayTeam, winner) = row.split(",")
+      val matchID = jedis.zscore("matches", s"$date:$homeTeam:$awayTeam")
 
-      val shootHashKey = s"shootout:" + index
-      val Array(date, home_team, away_team, winner) = row.split(",")
-
-      val match_id = jedis.zscore("matches", s"$date:$home_team:$away_team")
-
-      if (match_id != null) {
-        pipeline.hset(shootHashKey, "results_id", match_id.toInt.toString)
-        pipeline.hset(shootHashKey, "team", winner)
+      if (matchID != null) {
+        val pipeline: Pipeline = jedis.pipelined()
+        pipeline.hset(key, "results_id", matchID.toInt.toString)
+        pipeline.hset(key, "team", winner)
+        pipeline.hset(s"results:${matchID.toInt}", "shootout_id", key)
         pipeline.sync()
       }
     }
-    println("Shootouts - Done")
+    println("Loading shootouts is done")
     shootouts.close()
   }
 }
